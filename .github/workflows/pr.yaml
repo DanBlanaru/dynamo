@@ -81,6 +81,7 @@ jobs:
       - trtllm-efa-build
       - planner-build
       - planner-test
+      - planner-copy-to-acr
       - frontend-build
       - frontend-copy-to-acr
     if: always()
@@ -96,6 +97,7 @@ jobs:
       - deploy-test-vllm
       - deploy-test-sglang
       - deploy-test-trtllm
+      - deploy-test-operator-gpu0
       - deploy-operator-checkpoint-vllm
       - deploy-operator-checkpoint-sglang
       - deploy-snapshot-agent-checkpoint-vllm
@@ -442,7 +444,10 @@ jobs:
   planner-build:
     name: planner # This name overlaps with other planner jobs to group them in the UI
     needs: [changed-files]
-    if: needs.changed-files.outputs.core == 'true' || needs.changed-files.outputs.planner == 'true'
+    if: |
+      needs.changed-files.outputs.core == 'true' ||
+      needs.changed-files.outputs.planner == 'true' ||
+      needs.changed-files.outputs.operator == 'true'
     uses: ./.github/workflows/shared-build-image.yml
     with:
       framework: dynamo
@@ -758,6 +763,21 @@ jobs:
       copy_timeout_minutes: 10
     secrets: inherit
 
+  planner-copy-to-acr:
+    name: planner
+    needs: [changed-files, planner-build]
+    if: |
+      always() && !cancelled() &&
+      needs.changed-files.outputs.operator == 'true' &&
+      needs.planner-build.result == 'success'
+    uses: ./.github/workflows/shared-copy.yml
+    with:
+      target_tag_plain: ${{ needs.planner-build.outputs.target_tag_plain }}
+      cuda_version: '[""]'
+      override_arch: amd64 # Deploy tests only use AMD64 images.
+      copy_timeout_minutes: 10
+    secrets: inherit
+
   snapshot-placeholder-vllm:
     name: vLLM Snapshot Placeholder
     needs: [changed-files, vllm-copy-to-acr]
@@ -861,7 +881,8 @@ jobs:
   deploy-operator:
     if: |
       !cancelled() && !failure() &&
-      (needs.changed-files.outputs.vllm == 'true' ||
+      (needs.changed-files.outputs.operator == 'true' ||
+       needs.changed-files.outputs.vllm == 'true' ||
        needs.changed-files.outputs.sglang == 'true' ||
        needs.changed-files.outputs.trtllm == 'true' ||
        needs.changed-files.outputs.deploy == 'true') &&
@@ -931,6 +952,19 @@ jobs:
       framework: trtllm
       profiles: '["agg", "agg_router"]'
       image_suffix: trtllm-runtime
+      namespace: ${{ needs.deploy-operator.outputs.namespace }}
+      vcluster_name: ${{ needs.deploy-operator.outputs.vcluster_name }}
+      operator_tag: ${{ needs.deploy-operator.outputs.operator_tag }}
+    secrets: inherit
+
+  deploy-test-operator-gpu0:
+    name: Operator E2E
+    needs: [changed-files, deploy-operator, planner-copy-to-acr]
+    if: |
+      !cancelled() && !failure() &&
+      needs.changed-files.outputs.operator == 'true'
+    uses: ./.github/workflows/shared-operator-e2e.yml
+    with:
       namespace: ${{ needs.deploy-operator.outputs.namespace }}
       vcluster_name: ${{ needs.deploy-operator.outputs.vcluster_name }}
       operator_tag: ${{ needs.deploy-operator.outputs.operator_tag }}
@@ -1234,7 +1268,7 @@ jobs:
 
   deploy-cleanup:
     if: always()
-    needs: [deploy-operator, deploy-test-vllm, deploy-test-sglang, deploy-test-trtllm]
+    needs: [deploy-operator, deploy-test-vllm, deploy-test-sglang, deploy-test-trtllm, deploy-test-operator-gpu0]
     runs-on: prod-deploy-tester-v1
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -1293,6 +1327,7 @@ jobs:
       - snapshot-placeholder-sglang
       - power-agent
       - planner-test
+      - planner-copy-to-acr
       - vllm-copy-to-acr
       - vllm-multi-gpu-test
       - vllm-efa-build
