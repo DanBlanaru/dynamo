@@ -30,11 +30,11 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 /// Default worker pool size for TCP request handling
-const DEFAULT_WORKER_POOL_SIZE: usize = 10000;
+const DEFAULT_WORKER_POOL_SIZE: usize = 65_536;
 
 /// Default work queue size for TCP request handling
 /// this is 4X the worker pool size to handle burst traffic
-const DEFAULT_WORK_QUEUE_SIZE: usize = 40000;
+const DEFAULT_WORK_QUEUE_SIZE: usize = 262_144;
 
 /// Get worker pool size from environment or use default
 fn get_worker_pool_size() -> usize {
@@ -64,7 +64,7 @@ const DEFAULT_DYNAMO_REQUEST_QUEUE_LIMIT: usize = 16;
 ///
 /// * `DYN_ENGINE_REQUEST_LIMIT` set → pool = engine limit (N), queue = Q
 ///   (default 16). Hard cap N+Q.
-/// * unset → large defaults (10000 / 40000), so rejection only triggers under
+/// * unset → large defaults (65,536 / 262,144), so rejection only triggers under
 ///   extreme saturation.
 struct SizingConfig {
     pool_size: usize,
@@ -777,6 +777,12 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use tokio::time::Instant;
+
+    #[test]
+    fn default_worker_pool_and_queue_keep_four_to_one_ratio() {
+        assert_eq!(DEFAULT_WORKER_POOL_SIZE, 65_536);
+        assert_eq!(DEFAULT_WORK_QUEUE_SIZE, 4 * DEFAULT_WORKER_POOL_SIZE);
+    }
 
     /// Mock handler that simulates slow request processing for testing
     struct SlowMockHandler {

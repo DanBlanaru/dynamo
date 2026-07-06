@@ -987,10 +987,11 @@ def test_bootstrap_prefill_rejection_gates_decode(
     """A rejected bootstrap prefill must fail before decode dispatch.
 
     This is a scaled regression for the statusless phase-barrier bug. The
-    production defaults admit 10,000 active TCP handlers plus a 40,000-item
-    queue, so a 10,001-request test does not saturate ACK admission. Restricting
-    the prefill process to one active handler and one queued item reproduces the
-    same state with four requests:
+    production defaults admit 65,536 active TCP handlers, one request held by
+    the dispatcher, and a 262,144-item queue. A production-scale rejecting
+    probe would therefore be request 327,682. Restricting the prefill process
+    to one active handler and one queued item reproduces the same state with
+    four requests:
 
     1. one slow prefill is active;
     2. one request is held by the dispatcher waiting for the active permit;
