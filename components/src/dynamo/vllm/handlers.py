@@ -431,6 +431,28 @@ def _attach_prompt_logprobs_engine_data(
         engine_data["prompt_logprobs"] = prompt_logprobs
 
 
+def _use_prefill_prompt_logprobs(
+    sampling_params: Any,
+    disaggregated_params: Dict[str, Any],
+    engine_generate: bool,
+) -> Optional[list]:
+    """Return prompt logprobs computed by P and suppress recomputation on D.
+
+    A disaggregated decode consumes transferred KV instead of evaluating the
+    prompt positions. Asking vLLM to produce prompt logprobs again on D reads
+    absent prompt-logprob tensors and can surface invalid token IDs. The P/D
+    proxy contract therefore composes P's prompt metadata with D's generated
+    tokens.
+    """
+    prompt_logprobs = disaggregated_params.get("prompt_logprobs")
+    if not engine_generate or prompt_logprobs is None:
+        return None
+    if not isinstance(prompt_logprobs, list):
+        raise ValueError("prefill prompt_logprobs must be a list")
+    sampling_params.prompt_logprobs = None
+    return prompt_logprobs
+
+
 def _attach_routed_experts_engine_data(
     tok: Dict[str, Any], routed_experts: Dict[str, Any]
 ) -> None:
@@ -2810,6 +2832,7 @@ class DecodeWorkerHandler(BaseWorkerHandler):
             kv_params = disaggregated_params.get("kv_transfer_params")
         else:
             kv_params = None
+            disaggregated_params = {}
 
         is_decode_only = self.config.disaggregation_mode == DisaggregationMode.DECODE
         try:
@@ -2879,6 +2902,9 @@ class DecodeWorkerHandler(BaseWorkerHandler):
             self.default_sampling_params,
             self.model_max_len,
             enable_rl=self.config.enable_rl,
+        )
+        prefill_prompt_logprobs = _use_prefill_prompt_logprobs(
+            sampling_params, disaggregated_params, engine_generate
         )
 
         if kv_params is not None:
@@ -2977,6 +3003,13 @@ class DecodeWorkerHandler(BaseWorkerHandler):
                                 request_prompt_token_ids,
                                 accumulated_token_ids,
                                 accumulated_log_probs,
+                            )
+                        if (
+                            prefill_prompt_logprobs is not None
+                            and tok.get("finish_reason") is not None
+                        ):
+                            _attach_prompt_logprobs_engine_data(
+                                tok, prefill_prompt_logprobs
                             )
                         yield tok
                 except EngineDeadError as e:
@@ -3252,8 +3285,17 @@ class PrefillWorkerHandler(BaseWorkerHandler):
                 self.runtime.shutdown()
                 os._exit(1)
 
+            prompt_logprobs_payload: Optional[list] = None
             async for res in gen:
                 logger.debug(f"kv transfer params: {res.kv_transfer_params}")
+
+                if (
+                    prompt_logprobs_payload is None
+                    and getattr(res, "prompt_logprobs", None) is not None
+                ):
+                    prompt_logprobs_payload = _serialize_prompt_logprobs(
+                        res.prompt_logprobs
+                    )
 
                 token_ids = res.outputs[0].token_ids if res.outputs else []
 
@@ -3274,6 +3316,9 @@ class PrefillWorkerHandler(BaseWorkerHandler):
                     "disaggregated_params": self._build_disaggregated_params(
                         kv_protocol.decode_request_kv_transfer_params(res),
                         embedding_params,
+                        prompt_logprobs=(
+                            prompt_logprobs_payload if engine_generate else None
+                        ),
                     ),
                     "completion_usage": BaseWorkerHandler._build_completion_usage(
                         request_output=res,
@@ -3295,7 +3340,11 @@ class PrefillWorkerHandler(BaseWorkerHandler):
                 yield output
 
     def _build_disaggregated_params(
-        self, kv_transfer_params, embedding_params=None, expanded_prompt_token_ids=None
+        self,
+        kv_transfer_params,
+        embedding_params=None,
+        expanded_prompt_token_ids=None,
+        prompt_logprobs=None,
     ):
         disaggregated_params = {}
         if kv_transfer_params is not None:
@@ -3306,6 +3355,8 @@ class PrefillWorkerHandler(BaseWorkerHandler):
             disaggregated_params[
                 "expanded_prompt_token_ids"
             ] = expanded_prompt_token_ids
+        if prompt_logprobs is not None:
+            disaggregated_params["prompt_logprobs"] = prompt_logprobs
 
         return disaggregated_params if disaggregated_params else None
 
