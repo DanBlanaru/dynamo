@@ -1536,6 +1536,15 @@ def _test_bootstrap_prefill_rejection_gates_decode(
                         "dispatcher-held request unexpectedly established a response stream"
                     )
 
+                # An ACK proves enqueueing, not that the dispatcher has drained
+                # the item. Wait for zero queue depth so the first filler is
+                # dispatcher-held before placing the second filler in the queue.
+                await wait_for_metric(
+                    prefill_metrics_url,
+                    "dynamo_work_handler_queue_depth",
+                    lambda value: value == 0,
+                )
+
                 queued_task = asyncio.create_task(
                     session.post(chat_url, json=request_payload("queued"))
                 )
