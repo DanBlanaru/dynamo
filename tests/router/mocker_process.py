@@ -137,7 +137,7 @@ class MockerProcess:
         num_mockers: int = 1,
         store_backend: str = "etcd",
         request_plane: str = "nats",
-        zmq_kv_events: bool = False,
+        raw_kv_events: bool = False,
         standalone_indexer: bool = False,
         standalone_selector: bool = False,
         model_name: str = "mocker",
@@ -173,7 +173,7 @@ class MockerProcess:
         self.dp_size = mocker_args.get("dp_size")
         self.data_parallel_size = self.dp_size
 
-        if zmq_kv_events:
+        if raw_kv_events:
             dp_size = mocker_args.get("dp_size", 1)
             self._zmq_kv_events_ports = allocate_contiguous_ports(
                 num_mockers, dp_size, BASE_PORT_ZMQ
@@ -188,7 +188,7 @@ class MockerProcess:
                 num_mockers,
             )
 
-        if zmq_replay and zmq_kv_events:
+        if zmq_replay and raw_kv_events:
             dp_size = mocker_args.get("dp_size", 1)
             self._zmq_replay_ports = allocate_contiguous_ports(
                 num_mockers, dp_size, BASE_PORT_ZMQ + 1000
@@ -547,7 +547,7 @@ class DisaggMockerProcess:
         request_plane: str = "nats",
         enable_bootstrap: bool = False,
         event_plane: Optional[str] = None,
-        zmq_kv_events: bool = False,
+        raw_kv_events: bool = False,
         env_overrides: Optional[Dict[str, str]] = None,
     ):
         if worker_type not in ("prefill", "decode"):
@@ -580,7 +580,7 @@ class DisaggMockerProcess:
                 num_mockers,
             )
 
-        if zmq_kv_events:
+        if raw_kv_events:
             dp_size = mocker_args.get("dp_size", 1)
             self._zmq_kv_events_ports = allocate_contiguous_ports(
                 num_mockers, dp_size, BASE_PORT_ZMQ
@@ -688,7 +688,7 @@ def launch_disagg_workers(
     store_backend: str = "etcd",
     request_plane: str = "nats",
     event_plane: Optional[str] = None,
-    zmq_kv_events: bool = False,
+    raw_kv_events: bool = False,
     prefill_env_overrides: Optional[Dict[str, str]] = None,
     decode_env_overrides: Optional[Dict[str, str]] = None,
 ) -> Iterator[tuple[DisaggMockerProcess, DisaggMockerProcess]]:
@@ -707,7 +707,7 @@ def launch_disagg_workers(
             request_plane=request_plane,
             enable_bootstrap=enable_disagg_bootstrap,
             event_plane=event_plane,
-            zmq_kv_events=zmq_kv_events,
+            raw_kv_events=raw_kv_events,
             env_overrides=prefill_env_overrides,
         ) as prefill_workers:
             logger.info("Prefill workers using endpoint: %s", prefill_workers.endpoint)
@@ -726,7 +726,7 @@ def launch_disagg_workers(
                 store_backend=store_backend,
                 request_plane=request_plane,
                 event_plane=event_plane,
-                zmq_kv_events=zmq_kv_events,
+                raw_kv_events=raw_kv_events,
                 env_overrides=decode_env_overrides,
             ) as decode_workers:
                 logger.info(
@@ -748,7 +748,7 @@ def launch_disagg_workers(
         store_backend=store_backend,
         request_plane=request_plane,
         event_plane=event_plane,
-        zmq_kv_events=zmq_kv_events,
+        raw_kv_events=raw_kv_events,
         env_overrides=decode_env_overrides,
     ) as decode_workers:
         logger.info("Decode workers using endpoint: %s", decode_workers.endpoint)
@@ -768,7 +768,7 @@ def launch_disagg_workers(
             request_plane=request_plane,
             enable_bootstrap=enable_disagg_bootstrap,
             event_plane=event_plane,
-            zmq_kv_events=zmq_kv_events,
+            raw_kv_events=raw_kv_events,
             env_overrides=prefill_env_overrides,
         ) as prefill_workers:
             logger.info("Prefill workers using endpoint: %s", prefill_workers.endpoint)
