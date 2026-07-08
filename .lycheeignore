@@ -28,3 +28,7 @@
 
 # NGC intermittently returns 503 for this version-filtered page from GitHub runners.
 ^https://catalog\.ngc\.nvidia\.com/orgs/nvidia/teams/ai-dynamo/containers/dynamo-frontend\?version=1\.2\.1$
+
+# GitHub intermittently returns 404 to link checkers on the stargazers page
+# (valid public URL; fails lychee deterministically on CI runners)
+^https://github\.com/ai-dynamo/dynamo/stargazers$
