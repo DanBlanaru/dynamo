@@ -513,7 +513,10 @@ class TestDiffusionFormatterVideoOutputFormat:
                 "dynamo.vllm.omni.output_formatter.normalize_video_frames",
                 return_value=[MagicMock()],
             ),
-            _patch("dynamo.vllm.omni.output_formatter.export_to_video"),
+            _patch(
+                "dynamo.vllm.omni.output_formatter.encode_to_video_bytes",
+                return_value=b"fake-mp4-bytes",
+            ),
             _patch(
                 "dynamo.vllm.omni.output_formatter.upload_to_fs",
                 return_value="http://x/v.mp4",
