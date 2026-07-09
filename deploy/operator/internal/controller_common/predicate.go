@@ -39,6 +39,25 @@ type ExcludedNamespacesInterface interface {
 	Contains(namespace string) bool
 }
 
+// IsNamespaceExcluded reports whether cluster-wide reconciliation is disabled
+// for a namespace by a namespaced operator installation.
+func IsNamespaceExcluded(runtimeConfig *RuntimeConfig, namespace string) bool {
+	return namespace != "" && runtimeConfig != nil && runtimeConfig.ExcludedNamespaces != nil &&
+		runtimeConfig.ExcludedNamespaces.Contains(namespace)
+}
+
+// ShouldSkipReconciliation applies the namespace exclusion guard to a queued request.
+func ShouldSkipReconciliation(ctx context.Context, runtimeConfig *RuntimeConfig, namespace string) bool {
+	if !IsNamespaceExcluded(runtimeConfig, namespace) {
+		return false
+	}
+	log.FromContext(ctx).V(1).Info(
+		"Skipping reconciliation because namespace is managed by a namespaced operator",
+		"namespace", namespace,
+	)
+	return true
+}
+
 // DetectGroveAvailability checks if Grove is available by checking if the Grove API group is registered
 func DetectGroveAvailability(ctx context.Context, mgr ctrl.Manager) bool {
 	return detectAPIGroupAvailability(ctx, mgr, "grove.io", nil)
@@ -209,7 +228,7 @@ func GetKubeDiscoveryMode(annotations map[string]string) configv1alpha1.KubeDisc
 }
 
 // EphemeralDeploymentEventFilter returns a predicate that filters events based on namespace configuration.
-func EphemeralDeploymentEventFilter(config *configv1alpha1.OperatorConfiguration, runtimeConfig *RuntimeConfig) predicate.Predicate {
+func EphemeralDeploymentEventFilter(config *configv1alpha1.OperatorConfiguration, _ *RuntimeConfig) predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(o client.Object) bool {
 		l := log.FromContext(context.Background())
 		objMeta, err := meta.Accessor(o)
@@ -220,16 +239,6 @@ func EphemeralDeploymentEventFilter(config *configv1alpha1.OperatorConfiguration
 		if config.Namespace.Restricted != "" {
 			// in case of a restricted namespace, we only want to process the events that are in the restricted namespace
 			return objMeta.GetNamespace() == config.Namespace.Restricted
-		}
-
-		// Namespace exclusion filters new events, not requests already in the reconcile queue.
-		// This best-effort isolation is acceptable for the development-and-testing-only mode.
-		if runtimeConfig.ExcludedNamespaces != nil && runtimeConfig.ExcludedNamespaces.Contains(objMeta.GetNamespace()) {
-			l.V(1).Info("Skipping resource - namespace is excluded",
-				"namespace", objMeta.GetNamespace(),
-				"resource", objMeta.GetName(),
-				"kind", o.GetObjectKind().GroupVersionKind().Kind)
-			return false
 		}
 
 		// in all other cases, discard the event if it is destined to an ephemeral deployment

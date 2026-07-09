@@ -18,10 +18,51 @@
 package controller_common
 
 import (
+	"context"
 	"testing"
 
+	configv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/api/config/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
+
+type excludedNamespaces map[string]bool
+
+func (e excludedNamespaces) Contains(namespace string) bool {
+	return e[namespace]
+}
+
+func TestEphemeralDeploymentEventFilterKeepsExcludedNamespaceEvents(t *testing.T) {
+	config := &configv1alpha1.OperatorConfiguration{}
+	runtimeConfig := &RuntimeConfig{ExcludedNamespaces: excludedNamespaces{"tenant-a": true}}
+	filter := EphemeralDeploymentEventFilter(config, runtimeConfig)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant-a", Name: "object"}}
+
+	if !filter.Create(event.CreateEvent{Object: pod}) {
+		t.Fatal("expected event to be queued so the reconciliation wrapper can requeue it while the lease is active")
+	}
+}
+
+func TestIsNamespaceExcluded(t *testing.T) {
+	runtimeConfig := &RuntimeConfig{ExcludedNamespaces: excludedNamespaces{"tenant-a": true}}
+
+	if !IsNamespaceExcluded(runtimeConfig, "tenant-a") {
+		t.Fatal("expected tenant-a to be excluded")
+	}
+	if IsNamespaceExcluded(runtimeConfig, "tenant-b") {
+		t.Fatal("expected tenant-b not to be excluded")
+	}
+	if IsNamespaceExcluded(nil, "tenant-a") {
+		t.Fatal("expected a nil runtime configuration not to exclude namespaces")
+	}
+	if IsNamespaceExcluded(runtimeConfig, "") {
+		t.Fatal("expected cluster-scoped requests not to be excluded")
+	}
+	if !ShouldSkipReconciliation(context.Background(), runtimeConfig, "tenant-a") {
+		t.Fatal("expected reconciliation in tenant-a to be skipped")
+	}
+}
 
 func TestAPIGroupServesVersion(t *testing.T) {
 	apiGroups := &metav1.APIGroupList{
