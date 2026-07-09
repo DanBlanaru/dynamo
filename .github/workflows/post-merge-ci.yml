@@ -791,7 +791,12 @@ jobs:
       cuda_version: '[""]'
       override_arch: amd64 # Deploy tests only use AMD64 images.
       copy_timeout_minutes: 10
-    secrets: inherit
+    secrets:
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AZURE_ACR_HOSTNAME: ${{ secrets.AZURE_ACR_HOSTNAME }}
+      AZURE_ACR_USER: ${{ secrets.AZURE_ACR_USER }}
+      AZURE_ACR_PASSWORD: ${{ secrets.AZURE_ACR_PASSWORD }}
 
   # ============================================================================
   # DEPLOYMENT JOBS
@@ -864,7 +869,11 @@ jobs:
       namespace: ${{ needs.deploy-operator.outputs.namespace }}
       vcluster_name: ${{ needs.deploy-operator.outputs.vcluster_name }}
       operator_tag: ${{ needs.deploy-operator.outputs.operator_tag }}
-    secrets: inherit
+    secrets:
+      AZURE_ACR_HOSTNAME: ${{ secrets.AZURE_ACR_HOSTNAME }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      DOCKERHUB_LOGIN_USER: ${{ secrets.DOCKERHUB_LOGIN_USER }}
+      DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
   deploy-operator-checkpoint-vllm:
     name: vLLM DynamoCheckpoint Operator Setup

@@ -38,6 +38,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Check if vCluster exists
         id: vcluster-check
@@ -100,7 +102,7 @@ jobs:
           make -C deploy/operator test-e2e-dgdr \
             DGDR_NAMESPACE=default \
             DGDR_IMAGE="${DGDR_IMAGE}" \
-            DGDR_TEST_FLAGS="-ginkgo.label-filter=gpu_0 -ginkgo.junit-report=${GITHUB_WORKSPACE}/test-results/operator-e2e-gpu0.xml -dgdr-name-prefix=ci-${{ github.run_id }}-${{ github.run_attempt }}" \
+            DGDR_TEST_FLAGS="-ginkgo.label-filter='validation || (rapid && gpu_0)' -ginkgo.junit-report=${GITHUB_WORKSPACE}/test-results/operator-e2e-gpu0.xml -dgdr-name-prefix=ci-${{ github.run_id }}-${{ github.run_attempt }}" \
             2>&1 | tee "${GITHUB_WORKSPACE}/test-results/operator-e2e-gpu0.log"
 
       - name: Collect failure diagnostics
