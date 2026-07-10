@@ -1558,6 +1558,11 @@ class ManagedDeployment:
                 try:
                     port_forward.stop()
                 except Exception as e:
+                    # stop() failed — the background thread/socket may still be
+                    # running. Track it so _cleanup() can attempt to stop it
+                    # later rather than losing the reference when we replace the
+                    # object below.
+                    self._active_port_forwards.append(port_forward)
                     self._logger.debug(
                         f"Error stopping port forward for pod {pod.name}: {e}"
                     )
