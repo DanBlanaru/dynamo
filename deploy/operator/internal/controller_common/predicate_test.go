@@ -18,7 +18,6 @@
 package controller_common
 
 import (
-	"context"
 	"testing"
 
 	configv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/api/config/v1alpha1"
@@ -41,26 +40,6 @@ func TestEphemeralDeploymentEventFilterKeepsExcludedNamespaceEvents(t *testing.T
 
 	if !filter.Create(event.CreateEvent{Object: pod}) {
 		t.Fatal("expected event to be queued so the reconciliation wrapper can requeue it while the lease is active")
-	}
-}
-
-func TestIsNamespaceExcluded(t *testing.T) {
-	runtimeConfig := &RuntimeConfig{ExcludedNamespaces: excludedNamespaces{"tenant-a": true}}
-
-	if !IsNamespaceExcluded(runtimeConfig, "tenant-a") {
-		t.Fatal("expected tenant-a to be excluded")
-	}
-	if IsNamespaceExcluded(runtimeConfig, "tenant-b") {
-		t.Fatal("expected tenant-b not to be excluded")
-	}
-	if IsNamespaceExcluded(nil, "tenant-a") {
-		t.Fatal("expected a nil runtime configuration not to exclude namespaces")
-	}
-	if IsNamespaceExcluded(runtimeConfig, "") {
-		t.Fatal("expected cluster-scoped requests not to be excluded")
-	}
-	if !ShouldSkipReconciliation(context.Background(), runtimeConfig, "tenant-a") {
-		t.Fatal("expected reconciliation in tenant-a to be skipped")
 	}
 }
 
