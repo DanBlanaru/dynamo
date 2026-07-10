@@ -1,7 +1,7 @@
 # Operator Env Design
 
-`operatorenv` provides a Kubernetes API server for controller tests. It runs
-the production admission and conversion webhook registrations, but no
+`operatorenv` provides a Kubernetes API server for operator tests. It can run
+production or test-specific admission and conversion webhook handlers, but no
 controllers until an individual test starts one.
 
 ## Lifecycle
@@ -10,8 +10,12 @@ controllers until an individual test starts one.
 
 ```go
 var sharedEnv = operatorenv.New(operatorenv.Options{
-    Admission:  true,
-    Conversion: true,
+    Admission: operatorenv.AdmissionWebhooks{
+        Mutating:   true,
+        Validating: true,
+    },
+    Conversion:    true,
+    SetupWebhooks: setupProductionWebhooks,
 })
 
 func TestMain(m *testing.M) {
@@ -33,7 +37,10 @@ objects.
 
 ```go
 func TestIsolated(t *testing.T) {
-    env := operatorenv.New(operatorenv.Options{}).RunT(t)
+    env := operatorenv.New(operatorenv.Options{
+        Admission:     operatorenv.AdmissionWebhooks{Validating: true},
+        SetupWebhooks: setupTestWebhooks,
+    }).RunT(t)
     // ...
 }
 ```
@@ -41,11 +48,11 @@ func TestIsolated(t *testing.T) {
 ## Webhooks
 
 The envtest API server renders the production Helm webhook configuration and
-installs its mutating and validating webhook objects when admission is enabled.
-A dedicated webhook manager registers the production handlers via
-`webhooksetup.SetupAll`, including conversion endpoints. Therefore normal
-`Client` CRUD reaches the API server, CRD CEL validation, and production webhook
-code.
+installs the selected mutating and validating webhook objects. A dedicated
+webhook manager invokes the configured `SetupWebhooks` function, which normally
+registers the production handlers via `webhooksetup.SetupAll`, including
+conversion endpoints. Therefore normal `Client` CRUD reaches the API server,
+CRD CEL validation, and production webhook code.
 
 The webhook manager is separate from controller managers. It runs for the
 lifetime of the environment and is the only always-on manager.

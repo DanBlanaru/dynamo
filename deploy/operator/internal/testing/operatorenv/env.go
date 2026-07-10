@@ -19,7 +19,6 @@ import (
 
 	configv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/api/config/v1alpha1"
 	commoncontroller "github.com/ai-dynamo/dynamo/deploy/operator/internal/controller_common"
-	webhooksetup "github.com/ai-dynamo/dynamo/deploy/operator/internal/webhook/setup"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,15 +39,36 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
+// AdmissionWebhooks selects the Helm-rendered admission registrations installed in envtest.
+type AdmissionWebhooks struct {
+	Mutating   bool
+	Validating bool
+}
+
+// WebhookSetupOptions contains the effective operator settings passed to SetupWebhooks.
+type WebhookSetupOptions struct {
+	OperatorConfig    *configv1alpha1.OperatorConfiguration
+	RuntimeConfig     *commoncontroller.RuntimeConfig
+	OperatorVersion   string
+	OperatorPrincipal string
+}
+
+// WebhookSetupFunc registers the webhook handlers served by an Env.
+type WebhookSetupFunc func(ctrl.Manager, WebhookSetupOptions) error
+
 // Options configures an Env.
 type Options struct {
-	// Admission installs mutating and validating webhook configurations.
-	Admission bool
+	// Admission selects the Helm-rendered admission configurations to install.
+	Admission AdmissionWebhooks
 	// Conversion starts the conversion webhook server.
 	Conversion bool
+	// SetupWebhooks registers the handlers served when admission or conversion is enabled.
+	SetupWebhooks WebhookSetupFunc
 
-	// OperatorVersion is passed to production webhook defaulting handlers.
+	// OperatorVersion is passed to SetupWebhooks.
 	OperatorVersion string
+	// OperatorPrincipal is passed to SetupWebhooks.
+	OperatorPrincipal string
 	// Config overrides the default operator configuration.
 	Config *configv1alpha1.OperatorConfiguration
 	// RuntimeConfig overrides the default operator runtime configuration.
@@ -151,6 +171,9 @@ type runtimeEnv struct {
 }
 
 func startRuntime(opts Options) (*runtimeEnv, error) {
+	if webhooksEnabled(opts) && opts.SetupWebhooks == nil {
+		return nil, fmt.Errorf("operatorenv: SetupWebhooks is required when admission or conversion is enabled")
+	}
 	scheme := newScheme()
 	operatorCfg := defaultOperatorConfig(opts.Config)
 	runtimeConfig := opts.RuntimeConfig
@@ -186,7 +209,7 @@ func startRuntime(opts Options) (*runtimeEnv, error) {
 		operatorCfg:   operatorCfg,
 		runtimeConfig: runtimeConfig,
 	}
-	if opts.Admission || opts.Conversion {
+	if webhooksEnabled(opts) {
 		if err := rt.startWebhookManager(); err != nil {
 			_ = testEnv.Stop()
 			return nil, err
@@ -196,17 +219,21 @@ func startRuntime(opts Options) (*runtimeEnv, error) {
 }
 
 func webhookInstallOptions(opts Options) (envtest.WebhookInstallOptions, error) {
-	if !opts.Admission {
+	if !opts.Admission.Mutating && !opts.Admission.Validating {
 		return envtest.WebhookInstallOptions{}, nil
 	}
 	mutating, validating, err := helmWebhookConfigurations()
 	if err != nil {
 		return envtest.WebhookInstallOptions{}, err
 	}
-	return envtest.WebhookInstallOptions{
-		MutatingWebhooks:   mutating,
-		ValidatingWebhooks: validating,
-	}, nil
+	install := envtest.WebhookInstallOptions{}
+	if opts.Admission.Mutating {
+		install.MutatingWebhooks = mutating
+	}
+	if opts.Admission.Validating {
+		install.ValidatingWebhooks = validating
+	}
+	return install, nil
 }
 
 func (e *runtimeEnv) startWebhookManager() error {
@@ -225,10 +252,11 @@ func (e *runtimeEnv) startWebhookManager() error {
 		cancel()
 		return err
 	}
-	if err := webhooksetup.SetupAll(mgr, webhooksetup.Options{
-		Config:          e.operatorCfg,
-		RuntimeConfig:   e.runtimeConfig,
-		OperatorVersion: e.opts.OperatorVersion,
+	if err := e.opts.SetupWebhooks(mgr, WebhookSetupOptions{
+		OperatorConfig:    e.operatorCfg,
+		RuntimeConfig:     e.runtimeConfig,
+		OperatorVersion:   e.opts.OperatorVersion,
+		OperatorPrincipal: e.opts.OperatorPrincipal,
 	}); err != nil {
 		cancel()
 		return err
@@ -301,9 +329,19 @@ func (e *TestEnv) Client() client.Client {
 	return e.rt.client
 }
 
-// RESTConfig returns the API server REST configuration.
+// RESTConfig returns a copy of the API server REST configuration.
 func (e *TestEnv) RESTConfig() *rest.Config {
-	return e.rt.config
+	return rest.CopyConfig(e.rt.config)
+}
+
+// AddUser provisions an authenticated envtest user and returns its REST configuration.
+// Authorization must be granted separately so it does not alter the admission identity.
+func (e *TestEnv) AddUser(user envtest.User) (*rest.Config, error) {
+	authenticated, err := e.rt.env.AddUser(user, nil)
+	if err != nil {
+		return nil, err
+	}
+	return rest.CopyConfig(authenticated.Config()), nil
 }
 
 // OperatorConfig returns the environment's effective operator configuration.
@@ -395,10 +433,6 @@ func webhookManagerStartError(err error) error {
 }
 
 func normalizeOptions(opts Options) Options {
-	if !opts.Admission && !opts.Conversion {
-		opts.Admission = true
-		opts.Conversion = true
-	}
 	if opts.OperatorVersion == "" {
 		opts.OperatorVersion = "1.0.0"
 	}
@@ -406,6 +440,10 @@ func normalizeOptions(opts Options) Options {
 		opts.EventuallyTimeout = 10 * time.Second
 	}
 	return opts
+}
+
+func webhooksEnabled(opts Options) bool {
+	return opts.Admission.Mutating || opts.Admission.Validating || opts.Conversion
 }
 
 func defaultOperatorConfig(in *configv1alpha1.OperatorConfiguration) *configv1alpha1.OperatorConfiguration {
