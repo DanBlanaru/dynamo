@@ -1558,6 +1558,9 @@ class ManagedDeployment:
                 try:
                     port_forward.stop()
                 except Exception as e:
+                    # Best-effort stop before creating a fresh forward; failures
+                    # here are expected (e.g. pod already terminated) and safe to
+                    # ignore because we are about to replace the object anyway.
                     self._logger.debug(
                         f"Error stopping port forward for pod {pod.name}: {e}"
                     )
@@ -1572,6 +1575,9 @@ class ManagedDeployment:
                     )
                     port_forward.start()
                 except Exception as e:
+                    # Swallowed intentionally: the outer retry loop will either
+                    # succeed on a subsequent attempt or exhaust max_connection_attempts
+                    # and return None, letting callers handle the failure gracefully.
                     self._logger.debug(
                         f"Error restarting port forward for pod {pod.name}: {e}"
                     )

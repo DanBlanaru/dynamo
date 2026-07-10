@@ -210,8 +210,6 @@ filterwarnings = [
     "ignore:.*unclosed event loop.*:ResourceWarning",
     # unraisable exception warnings
     "ignore:.*Exception ignored in.*:pytest.PytestUnraisableExceptionWarning",
-    # background thread exceptions from kr8s port-forward teardown (OSError EADDRINUSE etc.)
-    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
     # pynvml deprecation, temporary until upstream migrates to nvidia-ml-py
     "ignore:The pynvml package is deprecated.*:FutureWarning",
     # Dynamo's own KV events deprecation warning
