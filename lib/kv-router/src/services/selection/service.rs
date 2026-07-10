@@ -11,6 +11,7 @@ use crate::scheduling::PotentialLoad;
 use crate::services::common::replica_sync::{
     PeerManager, ReplicaPeerError, ReplicaSyncRuntime, setup_replica_sync,
 };
+use crate::tracking_hash::TrackingHashContext;
 
 use super::core::{SelectionCore, SelectionServiceConfig};
 use super::error::SelectionError;
@@ -56,6 +57,10 @@ impl SelectionServiceBuilder {
     }
 
     pub async fn build(self) -> anyhow::Result<SelectionService> {
+        self.kv_router_config
+            .validate_config()
+            .map_err(anyhow::Error::msg)?;
+        let tracking_hash = Arc::new(TrackingHashContext::from_config(&self.kv_router_config)?);
         let cancel_token = CancellationToken::new();
         let mut startup_guard = StartupGuard::new(cancel_token.clone());
         let replica_runtime = setup_replica_sync(
@@ -69,6 +74,7 @@ impl SelectionServiceBuilder {
             self.indexer_threads,
             cancel_token.clone(),
             replica_config,
+            tracking_hash,
         ));
 
         if !self.indexer_peers.is_empty() {
