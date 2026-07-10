@@ -23,6 +23,7 @@ from dynamo.llm.exceptions import EngineShutdown
 from dynamo.trtllm.constants import DisaggregationMode
 from dynamo.trtllm.health_check import TrtllmHealthCheckPayload
 from dynamo.trtllm.llm_engine import TrtllmLLMEngine
+from dynamo.trtllm.multimodal_processor import MultimodalRequestProcessor
 from dynamo.trtllm.request_handlers.handler_base import HandlerBase
 
 pytestmark = [
@@ -824,3 +825,110 @@ class TestHealthCheckPriority:
         handler.engine.llm.generate_async.assert_called_once()
         _, kwargs = handler.engine.llm.generate_async.call_args
         assert kwargs["cache_salt"] == "tenant-a"
+
+
+class TestDefaultMaxTokens:
+    """Unit tests for HandlerBase._default_max_tokens (omitted max_tokens sizing)."""
+
+    def test_text_fills_remaining_context(self):
+        # 100 - len([1,2,3]) = 97
+        assert HandlerBase._default_max_tokens(100, [1, 2, 3], False, None) == 97
+
+    def test_text_on_multimodal_worker_ignores_expanded(self):
+        # A text request (no images) uses len(token_ids) even if an expanded
+        # length is somehow present; it must not defer like an image request.
+        assert HandlerBase._default_max_tokens(100, [1, 2, 3], False, 40) == 97
+
+    def test_returns_none_without_max_seq_len(self):
+        assert HandlerBase._default_max_tokens(None, [1, 2, 3], False, None) is None
+
+    def test_image_uses_expanded_len(self):
+        # 100 - 40 = 60; token_ids ignored in favor of the expanded length
+        assert HandlerBase._default_max_tokens(100, [1, 2, 3], True, 40) == 60
+
+    def test_image_without_expanded_defers(self):
+        # No expanded length available -> defer to engine default (None)
+        assert HandlerBase._default_max_tokens(100, [1, 2, 3], True, None) is None
+
+    def test_floors_at_one(self):
+        # Prompt already at/over context -> never returns <= 0
+        assert HandlerBase._default_max_tokens(3, [1, 2, 3, 4, 5], False, None) == 1
+
+
+class TestExpandedPromptLen:
+    """Unit tests for MultimodalRequestProcessor._expanded_prompt_len."""
+
+    def _processor(self, mm_token_ids, tokens_per_image):
+        # Bypass __init__ (which would build a real input processor) and inject a mock.
+        proc = MultimodalRequestProcessor.__new__(MultimodalRequestProcessor)
+        ip = MagicMock()
+        ip.get_mm_token_ids.return_value = (
+            torch.tensor(mm_token_ids) if mm_token_ids is not None else None
+        )
+        ip.get_num_tokens_per_image.side_effect = lambda image: tokens_per_image
+        proc.input_processor = ip
+        return proc
+
+    def test_replaces_placeholders_with_image_tokens(self):
+        # token_ids has one placeholder (99); one image expands to 256 tokens.
+        # 4 tokens - 1 placeholder + 256 = 259
+        proc = self._processor(mm_token_ids=[99], tokens_per_image=256)
+        assert proc._expanded_prompt_len([1, 2, 99, 3], images=["img"]) == 259
+
+    def test_multiple_images_sum(self):
+        # Two placeholders, two images x 10 tokens: 5 - 2 + 20 = 23
+        proc = self._processor(mm_token_ids=[99], tokens_per_image=10)
+        assert proc._expanded_prompt_len([1, 99, 2, 99, 3], ["a", "b"]) == 23
+
+    def test_none_without_input_processor(self):
+        proc = MultimodalRequestProcessor.__new__(MultimodalRequestProcessor)
+        proc.input_processor = None
+        assert proc._expanded_prompt_len([1, 2, 3], ["img"]) is None
+
+    def test_none_without_images(self):
+        proc = self._processor(mm_token_ids=[99], tokens_per_image=256)
+        assert proc._expanded_prompt_len([1, 2, 3], None) is None
+
+    def test_none_on_processor_error(self):
+        proc = MultimodalRequestProcessor.__new__(MultimodalRequestProcessor)
+        ip = MagicMock()
+        ip.get_mm_token_ids.side_effect = RuntimeError("boom")
+        proc.input_processor = ip
+        assert proc._expanded_prompt_len([1, 2, 3], ["img"]) is None
+
+
+class TestRequestHasImages:
+    """Unit tests for HandlerBase._request_has_images (image-vs-text classification).
+
+    Regression coverage for the bug where a text request to a multimodal worker
+    was mis-classified as multimodal and its omitted max_tokens deferred to the
+    engine default (32) instead of filling from len(token_ids).
+    """
+
+    def test_text_request_has_no_images(self):
+        # processed_input for text on a multimodal worker: no mm keys.
+        assert HandlerBase._request_has_images({"prompt_token_ids": [1, 2, 3]}) is False
+
+    def test_multi_modal_data_is_images(self):
+        assert (
+            HandlerBase._request_has_images({"multi_modal_data": {"image": ["x"]}})
+            is True
+        )
+
+    def test_multi_modal_embeddings_is_images(self):
+        assert (
+            HandlerBase._request_has_images(
+                {"multi_modal_embeddings": {"image": ["x"]}}
+            )
+            is True
+        )
+
+    def test_empty_mm_data_is_not_images(self):
+        # mm key present but falsy (text path sets these to None) -> not images.
+        assert HandlerBase._request_has_images({"multi_modal_data": None}) is False
+
+    def test_none_is_not_images(self):
+        assert HandlerBase._request_has_images(None) is False
+
+    def test_non_dict_is_not_images(self):
+        assert HandlerBase._request_has_images([1, 2, 3]) is False
