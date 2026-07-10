@@ -3,13 +3,6 @@
 
 """Live-cluster DGD checkpoint/restore deploy test."""
 
-# kr8s port-forward background threads can raise OSError (EADDRINUSE / connection
-# refused) during teardown after checkpoint restore. These are harness-level races,
-# not product failures — suppress them for this module only.
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::pytest.PytestUnhandledThreadExceptionWarning"
-)
-
 import asyncio
 import logging
 import time
