@@ -142,11 +142,11 @@ class DiffusionFormatter:
         try:
             start_time = time.time()
             frame_list = normalize_video_frames(images)
-            # Use the in-tree encoder helper (h264_nvenc) instead of
-            # diffusers.export_to_video, whose libx264 default is not built into
+            # Use the in-tree encoder helper (h264_nvenc, numpy frames in) instead
+            # of diffusers.export_to_video, whose libx264 default is not built into
             # the vllm-runtime image's ffmpeg. See video_utils.encode_to_video_bytes.
             video_bytes = await asyncio.to_thread(
-                encode_to_video_bytes, frame_list, fps, output_format
+                encode_to_video_bytes, np.asarray(frame_list), fps, output_format
             )
 
             if response_format == "b64_json":
