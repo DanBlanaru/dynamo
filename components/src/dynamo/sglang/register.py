@@ -168,6 +168,9 @@ async def _register_model_with_runtime_config(
             needs=needs,
             ignore_weights=use_modelexpress_remote_instance(server_args),
             max_gpu_lora_count=max_gpu_lora_count,
+            rejection_frontend_request_concurrency_limit=(
+                dynamo_args.rejection_frontend_request_concurrency_limit
+            ),
         )
         logging.info("Successfully registered LLM with runtime config")
         return True
