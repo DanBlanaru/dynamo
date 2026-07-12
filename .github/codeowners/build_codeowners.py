@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
-from codeowners_match import compute_resolution, load_tree  # noqa: E402
+from codeowners_match import compute_resolution, load_tree, match  # noqa: E402
 
 
 def main() -> int:
@@ -45,6 +45,10 @@ def main() -> int:
     tree = load_tree(Path(args.repo))
     model = compute_resolution(spec, tree)
     unmatched = model.unmatched_paths(tree)
+    # Deletions never fail a gate (coverage counts files, and the drift check
+    # forces the CODEOWNERS regeneration), so stale claims would otherwise
+    # accumulate silently in areas.yaml. Surface them; never block on them.
+    dead = [g for g in model.owned_patterns() if not any(match(g, p) for p in tree)]
 
     n_tree = len(tree)
     n_owned = n_tree - len(unmatched)
@@ -64,6 +68,13 @@ def main() -> int:
     if unmatched:
         print("catch-all-only sample (add an area or classify rule to cover these):")
         print("   ", unmatched[:15])
+    if dead:
+        print(
+            f"globs matching no files: {len(dead)} "
+            "(prune from areas.yaml when the paths are gone; never blocking):"
+        )
+        for g in dead[:10]:
+            print(f"    {g}")
     print("\nper-area glob counts:")
     counts = Counter({a.label: len(a.path_globs) for a in model.areas})
     for lbl, c in counts.most_common():
