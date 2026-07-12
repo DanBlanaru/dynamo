@@ -13,6 +13,7 @@ If either drifts, the tests catch it before the generated CODEOWNERS goes wrong.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,6 +22,7 @@ import pytest
 # Allow `import codeowners_match` when pytest runs from the repo root.
 sys.path.insert(0, str(Path(__file__).parent))
 
+import who_owns  # noqa: E402
 from codeowners_match import (  # noqa: E402
     Area,
     ResolvedModel,
@@ -398,6 +400,74 @@ class TestComputeResolution:
         model = compute_resolution(spec, tree)
         assert not any("orphan" in s["glob"] for s in model.keyword_coowned)
         assert "orphan/metrics/gauge.rs" in model.unmatched_paths(tree)
+
+
+# ------------------------------------------------------------------
+# who_owns.team_members() -- roster expansion (--people)
+# ------------------------------------------------------------------
+
+
+class TestTeamMembers:
+    def test_expands_team_via_fetcher(self) -> None:
+        cache: dict = {}
+        fetched = []
+
+        def fake(org: str, slug: str) -> list[str]:
+            fetched.append((org, slug))
+            return ["zoe", "amy"]
+
+        members = who_owns.team_members("@acme/router", fetch=fake, cache=cache)
+        assert members == ["amy", "zoe"]  # sorted
+        assert fetched == [("acme", "router")]
+        # second lookup served from cache, fetcher not called again
+        assert who_owns.team_members("@acme/router", fetch=fake, cache=cache) == [
+            "amy",
+            "zoe",
+        ]
+        assert fetched == [("acme", "router")]
+
+    def test_fetch_failure_returns_none_and_caches_negative(self) -> None:
+        cache: dict = {}
+        calls = []
+
+        def boom(org: str, slug: str) -> list[str]:
+            calls.append(slug)
+            raise subprocess.CalledProcessError(1, "gh")
+
+        assert who_owns.team_members("@acme/router", fetch=boom, cache=cache) is None
+        assert who_owns.team_members("@acme/router", fetch=boom, cache=cache) is None
+        assert calls == ["router"]  # failure cached; no retry storm
+
+    def test_individual_handle_passes_through(self) -> None:
+        def never(org: str, slug: str) -> list[str]:
+            raise AssertionError("fetcher must not be called for @handles")
+
+        assert who_owns.team_members("@octocat", fetch=never, cache={}) is None
+
+
+class TestChangedFiles:
+    def test_includes_untracked_files(self, tmp_path) -> None:
+        # Brand-new (unstaged) files are the ones the coverage gate cares
+        # about most; `git diff` alone never lists them.
+        repo = tmp_path / "r"
+        repo.mkdir()
+
+        def git(*args: str) -> None:
+            subprocess.check_output(
+                ["git", "-C", str(repo), *args], stderr=subprocess.DEVNULL
+            )
+
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        (repo / "tracked.txt").write_text("x")
+        git("add", "tracked.txt")
+        git("commit", "-q", "-m", "init")
+        (repo / "tracked.txt").write_text("y")  # modified, unstaged
+        (repo / "brand_new.txt").write_text("z")  # untracked
+
+        files = who_owns.changed_files(str(repo), "HEAD")
+        assert files == ["brand_new.txt", "tracked.txt"]
 
 
 # ------------------------------------------------------------------
