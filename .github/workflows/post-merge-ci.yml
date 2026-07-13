@@ -788,6 +788,7 @@ jobs:
     uses: ./.github/workflows/shared-copy.yml
     with:
       target_tag_plain: ${{ needs.planner-build.outputs.target_tag_plain }}
+      target_image: ai-dynamo/dynamo-planner
       cuda_version: '[""]'
       override_arch: amd64 # Deploy tests only use AMD64 images.
       copy_timeout_minutes: 10

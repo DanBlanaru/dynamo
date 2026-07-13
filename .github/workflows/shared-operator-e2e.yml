@@ -95,7 +95,7 @@ jobs:
       - name: Run GPU-free operator E2E tests
         shell: bash
         env:
-          DGDR_IMAGE: ${{ secrets.AZURE_ACR_HOSTNAME }}/ai-dynamo/dynamo:${{ github.sha }}-dynamo-planner
+          DGDR_IMAGE: ${{ secrets.AZURE_ACR_HOSTNAME }}/ai-dynamo/dynamo-planner:${{ github.sha }}-dynamo-planner
         run: |
           set -euo pipefail
           mkdir -p test-results
