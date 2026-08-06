@@ -125,8 +125,8 @@ class AicPerfArgGroup(ArgGroup):
             env_var="DYN_AIC_NEXTN",
             default=None,
             help=(
-                "[EXPERIMENTAL] MTP/Eagle speculative-decoding draft-token count "
-                "for AIC latency modeling (max 5). Omit to disable spec dec."
+                "[EXPERIMENTAL] MTP/Eagle/ngram speculative-decoding draft-token "
+                "count for AIC latency modeling (max 7). Omit to disable spec dec."
             ),
             arg_type=int,
         )

@@ -4,15 +4,17 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-const DEFAULT_CONDITIONAL_ACCEPT_RATES: [f64; 5] = [0.85, 0.3, 0.0, 0.0, 0.0];
+const MAX_SPECULATIVE_TOKENS: usize = 7;
+const DEFAULT_CONDITIONAL_ACCEPT_RATES: [f64; MAX_SPECULATIVE_TOKENS] =
+    [0.85, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0];
 
 pub(crate) fn normalize_conditional_accept_rates(
     nextn: usize,
     rates: Option<&str>,
 ) -> anyhow::Result<Vec<f64>> {
     anyhow::ensure!(
-        (1..=5).contains(&nextn),
-        "aic_nextn must be in 1..=5, got {nextn}"
+        (1..=MAX_SPECULATIVE_TOKENS).contains(&nextn),
+        "aic_nextn must be in 1..={MAX_SPECULATIVE_TOKENS}, got {nextn}"
     );
     let mut parsed = match rates.map(str::trim).filter(|rates| !rates.is_empty()) {
         Some(rates) => rates
@@ -46,7 +48,18 @@ pub(crate) fn format_accept_rates(rates: &[f64]) -> String {
 }
 
 pub(crate) fn undiscounted_aic_accept_rates(nextn: Option<usize>) -> Option<String> {
-    nextn.map(|nextn| vec!["0"; nextn].join(","))
+    nextn.map(|nextn| {
+        if nextn == 7 {
+            // Laguna has 48 target layers. AIC's MTP model adds `nextn`
+            // draft-layer work; ngram has no draft model. Setting E[accept]
+            // to 7/48 only for the AIC latency callback cancels that factor:
+            // ((48 + 7) / 48) / (1 + 7 / 48) = 1. Mocker still samples the
+            // configured acceptance distribution separately.
+            "0.14583333333333334,0,0,0,0,0,0".to_string()
+        } else {
+            vec!["0"; nextn].join(",")
+        }
+    })
 }
 
 pub(crate) struct SpeculativeDecodeSampler {
@@ -150,8 +163,18 @@ mod tests {
             normalize_conditional_accept_rates(2, Some("1,0.5,0.25")).unwrap(),
             vec![1.0, 0.5]
         );
+        assert_eq!(
+            normalize_conditional_accept_rates(
+                7,
+                Some("0.38,0.6578947368,0.776,0.8402061856,0.8588957055,0.8571428571,0.9")
+            )
+            .unwrap()
+            .len(),
+            7
+        );
         for rates in ["nan", "inf", "-0.1", "1.1", "not-a-rate"] {
             assert!(normalize_conditional_accept_rates(1, Some(rates)).is_err());
         }
+        assert!(normalize_conditional_accept_rates(8, None).is_err());
     }
 }

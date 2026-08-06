@@ -831,6 +831,7 @@ async fn select_engine(
                             config.nextn(),
                             config.nextn_accept_rates(),
                             config.systems_path(),
+                            None,
                         )
                     })
                 })
@@ -880,6 +881,7 @@ async fn select_engine(
                 let nextn = mocker_args.aic_nextn;
                 let undiscounted_accept_rates = mocker_args.undiscounted_aic_accept_rates();
                 let systems_path = mocker_args.aic_systems_path.as_deref();
+                let database_mode = mocker_args.aic_database_mode.as_deref();
                 match Python::with_gil(|py| {
                     create_aic_callback(
                         py,
@@ -899,6 +901,7 @@ async fn select_engine(
                         nextn,
                         undiscounted_accept_rates.as_deref(),
                         systems_path,
+                        database_mode,
                     )
                 }) {
                     Ok(callback) => {

@@ -180,6 +180,7 @@ pub fn simulate_loaded_trace_disagg_with_router_mode_and_options(
         prefill_load_estimator,
         trace,
         router_mode,
+        false,
         record_per_request,
         max_sim_time_ms,
         sla,
@@ -431,9 +432,7 @@ pub fn simulate_trace_file_disagg_with_router_mode_and_format(
             "applied_compute_agentic trace format requires replay_concurrency because source traces do not contain first-turn timestamps"
         );
     }
-    if trace_accumulates_session_deltas(trace_format) {
-        bail!("mooncake-delta trace format is not supported for disaggregated replay");
-    }
+    let accumulate_session_deltas = trace_accumulates_session_deltas(trace_format);
     let trace = load_trace_from_file(
         trace_path,
         trace_block_size,
@@ -462,6 +461,7 @@ pub fn simulate_trace_file_disagg_with_router_mode_and_format(
             prefill_load_estimator,
             trace,
             router_mode,
+            accumulate_session_deltas,
             record_per_request,
             max_sim_time_ms,
             sla,
@@ -849,9 +849,7 @@ pub fn simulate_concurrency_file_disagg_with_router_mode_and_format(
     if trace_format == TraceFileFormat::AgenticMooncake {
         bail!("agentic_mooncake trace format is not supported for disaggregated replay");
     }
-    if trace_accumulates_session_deltas(trace_format) {
-        bail!("mooncake-delta trace format is not supported for disaggregated replay");
-    }
+    let accumulate_session_deltas = trace_accumulates_session_deltas(trace_format);
     let trace = load_trace_from_file(
         trace_path,
         trace_block_size,
@@ -866,6 +864,7 @@ pub fn simulate_concurrency_file_disagg_with_router_mode_and_format(
         trace,
         max_in_flight,
         router_mode,
+        accumulate_session_deltas,
         record_per_request,
         max_sim_time_ms,
         sla,
@@ -1183,6 +1182,7 @@ fn simulate_trace_workload_disagg_with_router_mode_and_options(
         prefill_load_estimator,
         trace,
         router_mode,
+        false,
         record_per_request,
         max_sim_time_ms,
         sla,
@@ -1340,6 +1340,7 @@ pub fn simulate_concurrency_workload_disagg_with_router_mode_and_options(
         trace,
         max_in_flight,
         router_mode,
+        false,
         record_per_request,
         max_sim_time_ms,
         sla,

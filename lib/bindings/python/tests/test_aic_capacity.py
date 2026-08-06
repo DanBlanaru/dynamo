@@ -229,9 +229,10 @@ def test_pad_nextn_accept_rates_defaults_when_omitted():
 
 
 def test_pad_nextn_accept_rates_pads_and_truncates():
-    assert _pad_nextn_accept_rates([0.9, 0.4]) == [0.9, 0.4, 0.0, 0.0, 0.0]
-    assert _pad_nextn_accept_rates("0.9,0.4") == [0.9, 0.4, 0.0, 0.0, 0.0]
-    assert _pad_nextn_accept_rates([0.1] * 7) == [0.1] * _NEXTN_ACCEPT_RATES_LEN
+    expected = [0.9, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert _pad_nextn_accept_rates([0.9, 0.4]) == expected
+    assert _pad_nextn_accept_rates("0.9,0.4") == expected
+    assert _pad_nextn_accept_rates([0.1] * 9) == [0.1] * _NEXTN_ACCEPT_RATES_LEN
 
 
 @pytest.mark.parametrize(
@@ -405,6 +406,57 @@ def test_create_session_forwards_systems_path(monkeypatch):
         model_path="/models/mock",
         tp_size=4,
         systems_path="/tmp/aic-systems",
+        database_mode="SOL",
     )
 
     assert captured["kwargs"]["systems_path"] == "/tmp/aic-systems"
+    assert captured["kwargs"]["database_mode"] == "SOL"
+
+
+def test_aic_session_sol_uses_database_view_and_python_op_walk(monkeypatch):
+    import dynamo._internal.aic as aic_mod
+
+    captured: dict = {}
+    database = object()
+    model = types.SimpleNamespace(
+        model_name="m", context_ops=[], generation_ops=[], _nextn=0
+    )
+
+    def fake_get_database_view(**kwargs):
+        captured.update(kwargs)
+        return database
+
+    fake = {
+        "config": types.SimpleNamespace(ModelConfig=lambda **kwargs: object()),
+        "get_database": lambda **kwargs: pytest.fail(
+            "SOL must not use the SILICON database loader"
+        ),
+        "get_database_view": fake_get_database_view,
+        "get_supported_databases": lambda **kwargs: {},
+        "get_model": lambda **kwargs: model,
+        "get_backend": lambda backend_name: object(),
+        "InferenceSession": lambda **kwargs: object(),
+    }
+    monkeypatch.setattr(aic_mod, "_load_aiconfigurator", lambda: fake)
+
+    session = aic_mod.AicSession(
+        backend_name="vllm",
+        system="h200_sxm",
+        model_path="m",
+        tp_size=2,
+        backend_version="0.23.1",
+        systems_path="/tmp/aic-systems",
+        database_mode="sol",
+    )
+
+    assert captured == {
+        "system": "h200_sxm",
+        "backend": "vllm",
+        "version": "0.23.1",
+        "allow_missing_data": True,
+        "database_mode": "SOL",
+        "systems_paths": "/tmp/aic-systems",
+    }
+    assert session._database is database
+    assert session._database_mode == "SOL"
+    assert session._engine is None

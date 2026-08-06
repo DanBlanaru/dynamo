@@ -2012,6 +2012,7 @@ class MockEngineArgs:
         aic_system: Optional[str] = None,
         aic_systems_path: Optional[str] = None,
         aic_backend_version: Optional[str] = None,
+        aic_database_mode: Optional[str] = None,
         aic_tp_size: Optional[int] = None,
         aic_model_path: Optional[str] = None,
         aic_moe_tp_size: Optional[int] = None,
@@ -2160,6 +2161,12 @@ class MockEngineArgs:
 
     @aic_backend_version.setter
     def aic_backend_version(self, value: Optional[str]) -> None: ...
+
+    @property
+    def aic_database_mode(self) -> Optional[str]: ...
+
+    @aic_database_mode.setter
+    def aic_database_mode(self, value: Optional[str]) -> None: ...
 
     @property
     def aic_tp_size(self) -> Optional[int]: ...

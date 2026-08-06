@@ -19,7 +19,7 @@ use super::normalize_trace_requests;
 use super::single::{SingleReplayMode, SingleRuntime};
 use crate::common::handoff::NormalizedHandoffConformance;
 use crate::common::protocols::{DirectRequest, EngineType, MockEngineArgs, SglangArgs, WorkerType};
-use crate::loadgen::{AgenticTrace, Trace, WorkloadDriver};
+use crate::loadgen::{AgenticTrace, Trace};
 use crate::replay::OfflineDisaggReplayConfig;
 use crate::replay::{
     ReplayPrefillLoadEstimator, ReplayRouterMode, ReplayTimedKvEvent, ReplayTimedOutputSignal,
@@ -542,12 +542,18 @@ pub(crate) fn simulate_trace_workload_disagg(
     prefill_load_estimator: Option<ReplayPrefillLoadEstimator>,
     trace: Trace,
     router_mode: ReplayRouterMode,
+    accumulate_session_deltas: bool,
     record_per_request: bool,
     max_sim_time_ms: Option<f64>,
     sla: SlaThresholds,
 ) -> Result<TraceSimulationReport> {
     let started_at = Instant::now();
-    let driver = WorkloadDriver::new_trace(trace, config.prefill_args.block_size)?;
+    let driver = if accumulate_session_deltas {
+        trace
+            .into_delta_accumulating_trace_driver_with_block_size(config.prefill_args.block_size)?
+    } else {
+        trace.into_trace_driver_with_block_size(config.prefill_args.block_size)?
+    };
     let (collector, _) = DisaggRuntime::new_workload(
         &config,
         router_config,
@@ -570,13 +576,23 @@ pub(crate) fn simulate_concurrency_workload_disagg(
     trace: Trace,
     max_in_flight: usize,
     router_mode: ReplayRouterMode,
+    accumulate_session_deltas: bool,
     record_per_request: bool,
     max_sim_time_ms: Option<f64>,
     sla: SlaThresholds,
 ) -> Result<TraceSimulationReport> {
     let started_at = Instant::now();
-    let driver =
-        WorkloadDriver::new_concurrency(trace, config.prefill_args.block_size, max_in_flight)?;
+    let driver = if accumulate_session_deltas {
+        trace.into_delta_accumulating_concurrency_driver_with_block_size(
+            config.prefill_args.block_size,
+            max_in_flight,
+        )?
+    } else {
+        trace.into_concurrency_driver_with_block_size(
+            config.prefill_args.block_size,
+            max_in_flight,
+        )?
+    };
     let (collector, _) = DisaggRuntime::new_workload(
         &config,
         router_config,

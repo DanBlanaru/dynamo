@@ -394,6 +394,30 @@ fn multiturn_trace() -> Trace {
     }
 }
 
+fn delta_multiturn_trace() -> Trace {
+    Trace {
+        block_size: 64,
+        sessions: vec![SessionTrace {
+            session_id: "delta-session".to_string(),
+            first_arrival_timestamp_ms: Some(0.0),
+            turns: vec![
+                TurnTrace {
+                    input_length: 64,
+                    max_output_tokens: 2,
+                    hash_ids: vec![11],
+                    ..Default::default()
+                },
+                TurnTrace {
+                    input_length: 64,
+                    max_output_tokens: 2,
+                    hash_ids: vec![12],
+                    ..Default::default()
+                },
+            ],
+        }],
+    }
+}
+
 fn transition_index(transitions: &[DisaggTransition], needle: DisaggTransition) -> usize {
     transitions
         .iter()
@@ -1408,6 +1432,33 @@ fn test_trace_workload_follow_up_turn_arrives_after_completion_plus_delay() {
         second_turn.arrival_time_ms >= first_turn.last_token_ms.unwrap() + 10.0,
         "follow-up turn should unlock after completion plus delay"
     );
+}
+
+#[test]
+fn test_delta_workload_accumulates_decode_outputs_before_follow_up() {
+    let config = disagg_config();
+    let driver = delta_multiturn_trace()
+        .into_delta_accumulating_trace_driver_with_block_size(config.prefill_args.block_size)
+        .unwrap();
+    let (collector, _) = DisaggRuntime::new_workload(
+        &config,
+        None,
+        None,
+        driver,
+        ReplayMode::Trace,
+        ReplayRouterMode::RoundRobin,
+    )
+    .unwrap()
+    .run()
+    .unwrap();
+    let mut input_lengths = collector
+        .snapshots()
+        .into_iter()
+        .map(|snapshot| snapshot.input_length)
+        .collect::<Vec<_>>();
+    input_lengths.sort_unstable();
+
+    assert_eq!(input_lengths, vec![64, 130]);
 }
 
 #[test]

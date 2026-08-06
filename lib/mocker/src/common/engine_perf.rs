@@ -76,12 +76,14 @@ impl AicEngineConfig {
             model_name: self.model_name,
             system_name: self.system_name,
             systems_path: self.systems_path.map(PathBuf::from),
+            perf_db_sources: Default::default(),
             backend: parse_backend_kind(&self.backend)?,
             backend_version: self.backend_version,
             kv_block_size: self.kv_block_size,
             parallel: ParallelMapping {
                 tp_size: self.tp_size,
                 pp_size: self.pp_size,
+                cp_size: None,
                 attention_dp_size: self.attention_dp_size,
                 moe_tp_size: self.moe_tp_size,
                 moe_ep_size: self.moe_ep_size,
@@ -1032,6 +1034,15 @@ pub fn aic_config_from_mock_engine_args(args: &MockEngineArgs) -> Result<Option<
     let Some(backend) = args.aic_backend.as_deref() else {
         return Ok(None);
     };
+    if args
+        .aic_database_mode
+        .as_deref()
+        .is_some_and(|mode| !mode.eq_ignore_ascii_case("SILICON"))
+    {
+        // Native iteration analytics use the SILICON-only Rust AIC engine.
+        // Non-SILICON replay timing is provided by the Python callback.
+        return Ok(None);
+    }
     let Some(model_name) = args.aic_model_path.clone() else {
         bail!("aic_model_path is required when aic_backend is set");
     };
@@ -1051,12 +1062,14 @@ pub fn aic_config_from_mock_engine_args(args: &MockEngineArgs) -> Result<Option<
             .clone()
             .unwrap_or_else(|| DEFAULT_AIC_SYSTEM.to_string()),
         systems_path: args.aic_systems_path.clone().map(PathBuf::from),
+        perf_db_sources: Default::default(),
         backend: parse_backend_kind(backend)?,
         backend_version: args.aic_backend_version.clone(),
         kv_block_size: Some(to_u32(args.block_size, "block_size")?),
         parallel: ParallelMapping {
             tp_size: to_u32(args.aic_tp_size.unwrap_or(1), "aic_tp_size")?,
             pp_size: 1,
+            cp_size: None,
             attention_dp_size: args
                 .aic_attention_dp_size
                 .map(|value| to_u32(value, "aic_attention_dp_size"))

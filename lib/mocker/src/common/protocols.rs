@@ -536,6 +536,7 @@ struct MockEngineArgsSerde {
     aic_system: OptionalConfigValue<String>,
     aic_systems_path: OptionalConfigValue<String>,
     aic_backend_version: OptionalConfigValue<String>,
+    aic_database_mode: OptionalConfigValue<String>,
     aic_tp_size: OptionalConfigValue<usize>,
     aic_model_path: OptionalConfigValue<String>,
     aic_moe_tp_size: OptionalConfigValue<usize>,
@@ -694,6 +695,12 @@ pub struct MockEngineArgs {
     #[builder(default = "None")]
     pub aic_backend_version: Option<String>,
 
+    /// AIC performance database mode. SILICON uses the native Rust callback;
+    /// HYBRID, EMPIRICAL, and SOL use the GIL-bound Python callback.
+    #[serde(skip)]
+    #[builder(default = "None")]
+    pub aic_database_mode: Option<String>,
+
     /// Tensor parallel size for AIC latency prediction.
     /// Only affects AIC performance model lookups, not mocker scheduling.
     #[serde(skip)]
@@ -749,11 +756,11 @@ pub struct MockEngineArgs {
     #[builder(default = "None")]
     pub aic_comm_dtype: Option<String>,
 
-    /// MTP/Eagle speculative-decoding draft-token count (1..=5).
+    /// MTP/Eagle/ngram speculative-decoding draft-token count (1..=7).
     /// The mocker samples accepted drafts while AIC supplies undiscounted
     /// verification-round latency.
     #[builder(default = "None")]
-    #[validate(range(min = 1, max = 5))]
+    #[validate(range(min = 1, max = 7))]
     pub aic_nextn: Option<usize>,
 
     /// Conditional acceptance rates for draft tokens, comma-separated.
@@ -1122,6 +1129,9 @@ impl TryFrom<MockEngineArgsSerde> for MockEngineArgs {
         }
         if let Some(aic_backend_version) = compat.aic_backend_version.into_nullable() {
             builder = builder.aic_backend_version(aic_backend_version);
+        }
+        if let Some(aic_database_mode) = compat.aic_database_mode.into_nullable() {
+            builder = builder.aic_database_mode(aic_database_mode);
         }
         if let Some(aic_tp_size) = compat.aic_tp_size.into_nullable() {
             builder = builder.aic_tp_size(aic_tp_size);
@@ -1512,6 +1522,7 @@ mod tests {
         });
         payload["max_model_len"] = serde_json::json!(args.max_model_len);
         payload["aic_systems_path"] = serde_json::json!("/tmp/aic-systems");
+        payload["aic_database_mode"] = serde_json::json!("SOL");
 
         let restored = MockEngineArgs::from_json_str(&payload.to_string()).unwrap();
 
@@ -1523,6 +1534,7 @@ mod tests {
             restored.aic_systems_path.as_deref(),
             Some("/tmp/aic-systems")
         );
+        assert_eq!(restored.aic_database_mode.as_deref(), Some("SOL"));
         assert_eq!(
             restored.kv_transfer_timing_mode,
             KvTransferTimingMode::FullPrompt

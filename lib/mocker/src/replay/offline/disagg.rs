@@ -1408,6 +1408,9 @@ impl DisaggRuntime {
 
     /// Process one decode output signal, including decode router frees and request completion.
     fn process_decode_signal(&mut self, signal: OutputSignal) -> Result<()> {
+        if let Some(token_id) = signal.token_id {
+            self.admission.on_output_token(signal.uuid, token_id)?;
+        }
         if !signal.completed {
             return Ok(());
         }

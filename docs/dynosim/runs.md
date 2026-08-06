@@ -155,6 +155,12 @@ Multi-turn sessions are closed-loop: turn `n+1` waits until turn `n` completes p
 explicit `delay` / `delay_ms` or the timestamp delta inferred from consecutive rows in the same
 session.
 
+Offline aggregated and disaggregated runs support `--trace-format mooncake-delta`. Follow-up rows
+contain only the new input delta; DynoSim appends generated output token IDs and the next input
+delta before computing the next cumulative prompt. In disaggregated mode, only decoder output
+tokens enter the session history—the prefiller's hidden one-token bootstrap does not. Online replay
+does not support `mooncake-delta`.
+
 Example:
 
 ```json
@@ -342,12 +348,19 @@ enabled, the same path configures that estimator. The flag does not enable eithe
 itself; keep the remaining engine timing fields in engine JSON and the router timing fields in the
 top-level `--aic-*` options.
 
+Engine timing uses AIC's `SILICON` database mode by default. Set `aic_database_mode` in the engine
+JSON to `HYBRID`, `EMPIRICAL`, or `SOL` when the selected system lacks the required silicon rows.
+`SILICON` runs through the native Rust callback. The other modes use AIC's GIL-bound Python op-walk
+and run more slowly. `SOL` preserves the selected model topology and quantization but estimates
+operation latency from the system specification rather than measured backend kernels.
+
 ```bash
 python -m dynamo.replay /path/to/mooncake_trace.jsonl \
     --aic-systems-path /path/to/aiconfigurator/systems \
     --extra-engine-args '{
       "aic_backend": "vllm",
       "aic_system": "h200_sxm",
+      "aic_database_mode": "SOL",
       "aic_model_path": "nvidia/Llama-3.1-8B-Instruct-FP8",
       "aic_tp_size": 1
     }'

@@ -151,6 +151,7 @@ impl DisaggRequestState {
     pub(crate) fn build_prefill_request(&self) -> Result<DirectRequest> {
         let mut request = self.original_request()?.clone();
         request.max_output_tokens = 1;
+        request.output_token_ids = None;
         Ok(request)
     }
 
@@ -525,7 +526,7 @@ mod tests {
             DirectRequest {
                 tokens: vec![1; 8],
                 max_output_tokens: 12,
-                output_token_ids: None,
+                output_token_ids: Some(vec![7; 12]),
                 uuid: Some(Uuid::from_u128(1)),
                 dp_rank: 0,
                 arrival_timestamp_ms: Some(0.0),
@@ -542,6 +543,15 @@ mod tests {
 
         let request = state.build_prefill_request().unwrap();
         assert_eq!(request.max_output_tokens, 1);
+        assert_eq!(request.output_token_ids, None);
+        assert_eq!(
+            state
+                .original_request()
+                .unwrap()
+                .output_token_ids
+                .as_deref(),
+            Some(&[7; 12][..])
+        );
         assert_eq!(request.priority, -3);
         assert_eq!(request.strict_priority, 9);
     }

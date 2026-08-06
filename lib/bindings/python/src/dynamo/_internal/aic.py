@@ -12,9 +12,9 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_NEXTN_ACCEPT_RATES_LEN = 5
+_NEXTN_ACCEPT_RATES_LEN = 7
 # AIC CLI default when accept-rates are omitted (``cli/main.py:795``).
-_DEFAULT_NEXTN_ACCEPT_RATES = [0.85, 0.3, 0.0, 0.0, 0.0]
+_DEFAULT_NEXTN_ACCEPT_RATES = [0.85, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 # Default backend versions match the AIC v0.9.0 perf DB.
 DEFAULT_BACKEND_VERSIONS = {
@@ -105,13 +105,12 @@ def _resolve_quant_mode_name(field: str, value: str | None) -> str | None:
 def _pad_nextn_accept_rates(
     nextn_accept_rates: list[float] | str | None,
 ) -> list[float]:
-    """Normalize accept-rates to AIC's fixed length-5 slot.
+    """Normalize accept-rates to the supported speculative-depth slot.
 
-    AIC caps MTP draft tokens at 5 (``ModelConfig.nextn`` "at most mtp5",
-    ``sdk/config.py:28``) and ``calc_expectation`` indexes into the list up
-    to ``nextn``. When rates are omitted entirely we fall back to AIC's CLI
-    default (``cli/main.py:795``); an explicit shorter list is zero-padded and
-    a longer one is truncated, so callers never trip over IndexError downstream.
+    ``calc_expectation`` indexes into the list up to ``nextn``. When rates are
+    omitted entirely we fall back to AIC's CLI default; an explicit shorter
+    list is zero-padded and a longer one is truncated, so callers never trip
+    over IndexError downstream.
     """
     if isinstance(nextn_accept_rates, str):
         try:
@@ -147,6 +146,7 @@ def _load_aiconfigurator():
         from aiconfigurator.sdk.models import get_model
         from aiconfigurator.sdk.perf_database import (
             get_database,
+            get_database_view,
             get_supported_databases,
         )
     except (
@@ -162,6 +162,7 @@ def _load_aiconfigurator():
         "InferenceSession": InferenceSession,
         "get_model": get_model,
         "get_database": get_database,
+        "get_database_view": get_database_view,
         "get_supported_databases": get_supported_databases,
     }
 
@@ -187,16 +188,33 @@ class AicSession:
         nextn: int | None = None,
         nextn_accept_rates: list[float] | str | None = None,
         systems_path: str | None = None,
+        database_mode: str = "SILICON",
     ):
         aic = _load_aiconfigurator()
         version = resolve_backend_version(backend_name, backend_version)
+        database_mode = database_mode.strip().upper()
+        if database_mode not in {"SILICON", "HYBRID", "EMPIRICAL", "SOL"}:
+            raise ValueError(
+                "aic_database_mode must be one of SILICON, HYBRID, EMPIRICAL, "
+                f"or SOL, got {database_mode!r}"
+            )
 
         database_kwargs = (
             {"systems_paths": systems_path} if systems_path is not None else {}
         )
-        database = aic["get_database"](
-            system=system, backend=backend_name, version=version, **database_kwargs
-        )
+        if database_mode == "SILICON":
+            database = aic["get_database"](
+                system=system, backend=backend_name, version=version, **database_kwargs
+            )
+        else:
+            database = aic["get_database_view"](
+                system=system,
+                backend=backend_name,
+                version=version,
+                allow_missing_data=True,
+                database_mode=database_mode,
+                **database_kwargs,
+            )
         if database is None:
             supported = (
                 aic["get_supported_databases"](**database_kwargs)
@@ -231,8 +249,8 @@ class AicSession:
             if quant_mode is not None:
                 model_config_kwargs[cfg_key] = quant_mode
         if nextn:
-            # Mirror the Rust 1..=5 contract; AIC indexes accept_rates up to
-            # nextn, so >5 would IndexError in calc_expectation.
+            # Mirror the Rust depth contract. AIC indexes accept_rates up to
+            # nextn, so larger values would IndexError in calc_expectation.
             if not 1 <= nextn <= _NEXTN_ACCEPT_RATES_LEN:
                 raise ValueError(
                     f"nextn must be 1..={_NEXTN_ACCEPT_RATES_LEN} when set, got {nextn}"
@@ -254,6 +272,7 @@ class AicSession:
         self._backend = backend
         self._backend_name = backend_name
         self._database = database
+        self._database_mode = database_mode
         self._model = model
         self._model_name = getattr(model, "model_name", None) or model_path
         logger.info(
@@ -273,6 +292,12 @@ class AicSession:
     def _build_compiled_engine(self):
         """Build a cached aiconfigurator_core EngineHandle from the already-built
         model, or return None to fall back to the Python op-walk."""
+        if self._database_mode != "SILICON":
+            logger.info(
+                "AIC database mode %s requires the Python op-walk.",
+                self._database_mode,
+            )
+            return None
         if os.environ.get("DYNAMO_AIC_DISABLE_COMPILED_ENGINE"):
             logger.info(
                 "AIC compiled-engine path disabled via env; using Python op-walk."
@@ -387,6 +412,7 @@ def create_session(
     nextn: int | None = None,
     nextn_accept_rates: list[float] | str | None = None,
     systems_path: str | None = None,
+    database_mode: str = "SILICON",
 ) -> AicSession:
     """Factory function called from Rust via PyO3."""
     return AicSession(
@@ -406,6 +432,7 @@ def create_session(
         nextn=nextn,
         nextn_accept_rates=nextn_accept_rates,
         systems_path=systems_path,
+        database_mode=database_mode,
     )
 
 
